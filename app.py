@@ -473,84 +473,85 @@ if ((scan_clicked or (mode == "Doji Scanner" and auto_refresh and time.time() - 
 		st.session_state["last_doji_refresh"] = time.time()
 
 	if not data_by_symbol:
-		st.warning("No data downloaded. Try a different date range or tickers.")
-		st.stop()
-
-	with st.spinner("Scanning dojis…"):
-		rows = []
-		for sym, df in data_by_symbol.items():
-			if df.empty:
-				continue
-			# classify dojis using current thresholds
-			df_doji = tag_doji(df, body_alpha=body_alpha, atr_floor=atr_floor, wick_tolerance=wick_tol, long_wick_fraction=long_wick_frac)
-			if ndoji_toggle:
-				flags, delta = compute_nday_reversion(df_doji, int(ndoji_window), ndoji_tolerance / 100.0)
-				df_doji = df_doji.assign(is_nday_doji=flags, nday_delta_pct=(delta * 100.0))
-			for dt, r in df_doji.iterrows():
-				if not bool(r.get("is_doji", False)) and not bool(r.get("is_nday_doji", False)):
-					continue
-				rows.append({
-					"Symbol": sym,
-					"Date": dt.date().isoformat(),
-					"Doji?": bool(r.get("is_doji", False)),
-					"Doji Type": r.get("doji_type", None),
-					"N-Day Doji?": bool(r.get("is_nday_doji", False)) if ndoji_toggle else False,
-					"N-Day Δ% (vs start)": float(r.get("nday_delta_pct", np.nan)) if ndoji_toggle else np.nan,
-					"Open": float(r.get("Open", np.nan)),
-					"High": float(r.get("High", np.nan)),
-					"Low": float(r.get("Low", np.nan)),
-					"Close": float(r.get("Close", np.nan)),
-					"Volume": int(r.get("Volume", 0)) if not pd.isna(r.get("Volume", np.nan)) else 0,
-				})
-
-	if not rows:
-		st.info("No doji matches for the chosen parameters.")
-		st.stop()
-
-	doji_table = pd.DataFrame(rows)
-	st.subheader("Doji Results")
-	if AgGrid and GridOptionsBuilder:
-		gb = GridOptionsBuilder.from_dataframe(doji_table)
-		gb.configure_pagination(paginationAutoPageSize=True)
-		gb.configure_side_bar()
-		gb.configure_selection(selection_mode="single", use_checkbox=True)
-		gb.configure_default_column(resizable=True, sortable=True, filter=True, floatingFilter=True)
-		grid_options = gb.build()
-		grid_response = AgGrid(
-			doji_table,
-			gridOptions=grid_options,
-			height=540,
-			fit_columns_on_grid_load=True,
-			update_mode=GridUpdateMode.SELECTION_CHANGED,
-			allow_unsafe_jscode=True,
-		)
-		selected_rows = grid_response.get("selected_rows", []) if isinstance(grid_response, dict) else []
+		st.session_state["doji_results"] = pd.DataFrame()
 	else:
-		st.dataframe(doji_table, use_container_width=True)
-		selected_rows = []
+		with st.spinner("Scanning dojis…"):
+			rows = []
+			for sym, df in data_by_symbol.items():
+				if df.empty:
+					continue
+				# classify dojis using current thresholds
+				df_doji = tag_doji(df, body_alpha=body_alpha, atr_floor=atr_floor, wick_tolerance=wick_tol, long_wick_fraction=long_wick_frac)
+				if ndoji_toggle:
+					flags, delta = compute_nday_reversion(df_doji, int(ndoji_window), ndoji_tolerance / 100.0)
+					df_doji = df_doji.assign(is_nday_doji=flags, nday_delta_pct=(delta * 100.0))
+				for dt, r in df_doji.iterrows():
+					if not bool(r.get("is_doji", False)) and not bool(r.get("is_nday_doji", False)):
+						continue
+					rows.append({
+						"Symbol": sym,
+						"Date": dt.date().isoformat(),
+						"Doji?": bool(r.get("is_doji", False)),
+						"Doji Type": r.get("doji_type", None),
+						"N-Day Doji?": bool(r.get("is_nday_doji", False)) if ndoji_toggle else False,
+						"N-Day Δ% (vs start)": float(r.get("nday_delta_pct", np.nan)) if ndoji_toggle else np.nan,
+						"Open": float(r.get("Open", np.nan)),
+						"High": float(r.get("High", np.nan)),
+						"Low": float(r.get("Low", np.nan)),
+						"Close": float(r.get("Close", np.nan)),
+						"Volume": int(r.get("Volume", 0)) if not pd.isna(r.get("Volume", np.nan)) else 0,
+					})
+			st.session_state["doji_results"] = pd.DataFrame(rows)
 
-	if selected_rows:
-		row = selected_rows[0]
-		st.markdown("---")
-		st.subheader(f"Doji Visuals — {row['Symbol']} on {row['Date']}")
-		c1, c2 = st.columns([1, 2])
-		with c1:
-			st.write({k: row[k] for k in ["Doji?", "Doji Type", "N-Day Doji?", "N-Day Δ% (vs start)"] if k in row})
-			show_vol = st.checkbox("Show volume", value=True, key="doji_show_vol")
-			st.markdown("**Overlays**")
-			ovl_doji = st.checkbox("Mark single-day dojis", value=True, key="ovl_doji")
-			ovl_nday = st.checkbox("Mark N-day dojis", value=bool(ndoji_toggle), key="ovl_nday")
-		with c2:
-			if st.button("Load Visuals", type="secondary", key="doji_load_visuals"):
-				render_candlestick(
-					symbol=row["Symbol"],
-					center_date=row["Date"],
-					window_days=10,
-					show_doji_markers=ovl_doji or ovl_nday,
-					n_day=int(ndoji_window) if (ovl_nday and ndoji_toggle) else None,
-					tolerance_pct=float(ndoji_tolerance) if ndoji_toggle else None,
-					show_volume=show_vol,
-					show_ref_levels=True,
-				)
+# Render Doji Scanner table and visuals using cached state
+if mode == "Doji Scanner":
+	doji_table = st.session_state.get("doji_results")
+	st.subheader("Doji Results")
+	if doji_table is None or doji_table.empty:
+		st.info("Run a scan to see results.")
+	else:
+		if AgGrid and GridOptionsBuilder:
+			gb = GridOptionsBuilder.from_dataframe(doji_table)
+			gb.configure_pagination(paginationAutoPageSize=True)
+			gb.configure_side_bar()
+			gb.configure_selection(selection_mode="single", use_checkbox=True)
+			gb.configure_default_column(resizable=True, sortable=True, filter=True, floatingFilter=True)
+			grid_options = gb.build()
+			grid_response = AgGrid(
+				doji_table,
+				gridOptions=grid_options,
+				height=540,
+				fit_columns_on_grid_load=True,
+				update_mode=GridUpdateMode.SELECTION_CHANGED,
+				allow_unsafe_jscode=True,
+			)
+			_store_selection("doji_selected", grid_response)
+		else:
+			st.dataframe(doji_table, use_container_width=True)
+			st.session_state["doji_selected"] = None
+
+		row = st.session_state.get("doji_selected")
+		if row:
+			st.markdown("---")
+			st.subheader(f"Doji Visuals — {row['Symbol']} on {row['Date']}")
+			c1, c2 = st.columns([1, 2])
+			with c1:
+				st.write({k: row[k] for k in ["Doji?", "Doji Type", "N-Day Doji?", "N-Day Δ% (vs start)"] if k in row})
+				show_vol = st.checkbox("Show volume", value=True, key="doji_show_vol")
+				st.markdown("**Overlays**")
+				ovl_doji = st.checkbox("Mark single-day dojis", value=True, key="ovl_doji")
+				ovl_nday = st.checkbox("Mark N-day dojis", value=False, key="ovl_nday")
+			with c2:
+				if st.button("Load Visuals", type="secondary", key="doji_load_visuals"):
+					render_candlestick(
+						symbol=row["Symbol"],
+						center_date=row["Date"],
+						window_days=10,
+						show_doji_markers=ovl_doji or ovl_nday,
+						n_day=int(ndoji_window) if ovl_nday else None,
+						tolerance_pct=float(ndoji_tolerance) if ovl_nday else None,
+						show_volume=show_vol,
+						show_ref_levels=True,
+					)
 
 
