@@ -16,7 +16,44 @@ except Exception:
 	GridUpdateMode = None
 
 # Local imports (provided in signals.py)
-from signals import tag_doji, compute_gap_pct, compute_nday_reversion
+try:
+	from signals import tag_doji, compute_gap_pct, compute_nday_reversion
+except Exception:
+	try:
+		from signals import tag_doji, compute_gap_pct
+	except Exception:
+		# Minimal fallbacks if signals.py is missing entirely in the runtime
+		def compute_gap_pct(data: pd.DataFrame) -> pd.Series:
+			prev_close = data["Close"].astype(float).shift(1)
+			open_px = data["Open"].astype(float)
+			return (open_px - prev_close) / prev_close
+		def tag_doji(
+			data: pd.DataFrame,
+			body_alpha: float = 0.1,
+			atr_floor: float = 0.5,
+			wick_tolerance: float = 0.1,
+			long_wick_fraction: float = 0.6,
+		) -> pd.DataFrame:
+			frame = data.copy()
+			open_px = frame["Open"].astype(float)
+			high_px = frame["High"].astype(float)
+			low_px = frame["Low"].astype(float)
+			close_px = frame["Close"].astype(float)
+			body = (close_px - open_px).abs()
+			range_ = (high_px - low_px).clip(lower=1e-9)
+			frame["is_doji"] = body <= body_alpha * range_
+			frame["doji_type"] = frame["is_doji"].map(lambda x: "Doji" if x else None)
+			return frame
+	# Provide local fallback for N-day if missing
+	def compute_nday_reversion(data: pd.DataFrame, n_days: int, tolerance_frac: float):
+		close_px = data["Close"].astype(float)
+		if n_days <= 1:
+			return pd.Series([False] * len(close_px), index=data.index), pd.Series([np.nan] * len(close_px), index=data.index)
+		start_close = close_px.shift(n_days - 1)
+		delta_frac = (close_px / start_close) - 1.0
+		is_nday = delta_frac.abs() <= tolerance_frac
+		is_nday = is_nday & start_close.notna()
+		return is_nday, delta_frac
 
 
 # -----------------------------
