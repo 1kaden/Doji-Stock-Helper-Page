@@ -495,27 +495,30 @@ if mode == "Gap Scanner":
 	else:
 		quick_search = st.text_input("Quick search (filters all columns)")
 		if AgGrid and GridOptionsBuilder:
-			# Compact view for mobile: keep essential columns
-			if compact_mobile:
-				_keep = [c for c in ["Symbol", "Date", "Gap %", "Direction", "Doji?", "Doji Type"] if c in results.columns]
-				results_view = results[_keep].copy() if _keep else results
-			else:
-				results_view = results
-
+			results_view = results
 			gb = GridOptionsBuilder.from_dataframe(results_view)
 			gb.configure_pagination(paginationAutoPageSize=True)
 			gb.configure_side_bar()
 			gb.configure_selection(selection_mode="single", use_checkbox=True)
 			gb.configure_default_column(resizable=True, sortable=True, filter=True, floatingFilter=True)
-			# Responsive widths
+			# Responsive widths and compact styling
+			min_w = 70 if compact_mobile else 90
 			for col in results_view.columns:
 				try:
-					gb.configure_column(col, flex=1, minWidth=90)
+					gb.configure_column(col, flex=1, minWidth=min_w)
 				except Exception:
 					pass
 			if "Symbol" in results_view.columns:
 				gb.configure_column("Symbol", pinned="left", width=100)
+			if compact_mobile:
+				gb.configure_grid_options(rowHeight=24, headerHeight=28)
 			grid_options = gb.build()
+			custom_css = None
+			if compact_mobile:
+				custom_css = {
+					".ag-theme-streamlit .ag-cell": {"font-size": "11px", "padding": "2px 4px"},
+					".ag-theme-streamlit .ag-header-cell-label": {"font-size": "11px"},
+				}
 			grid_response = AgGrid(
 				results_view,
 				gridOptions=grid_options,
@@ -524,6 +527,7 @@ if mode == "Gap Scanner":
 				update_mode=GridUpdateMode.SELECTION_CHANGED,
 				allow_unsafe_jscode=True,
 				quickFilterText=quick_search or "",
+				custom_css=custom_css,
 			)
 			selected_rows = grid_response.get("selected_rows", []) if isinstance(grid_response, dict) else []
 		else:
@@ -599,26 +603,29 @@ if mode == "Doji Scanner":
 		st.info("Run a scan to see results.")
 	else:
 		if AgGrid and GridOptionsBuilder:
-			# Compact view for mobile
-			if compact_mobile:
-				_keep = [c for c in ["Symbol", "Date", "Doji?", "Doji Type", "N-Day Doji?", "N-Day Δ% (vs start)"] if c in doji_table.columns]
-				doji_view = doji_table[_keep].copy() if _keep else doji_table
-			else:
-				doji_view = doji_table
-
+			doji_view = doji_table
 			gb = GridOptionsBuilder.from_dataframe(doji_view)
 			gb.configure_pagination(paginationAutoPageSize=True)
 			gb.configure_side_bar()
 			gb.configure_selection(selection_mode="single", use_checkbox=True)
 			gb.configure_default_column(resizable=True, sortable=True, filter=True, floatingFilter=True)
+			min_w = 70 if compact_mobile else 90
 			for col in doji_view.columns:
 				try:
-					gb.configure_column(col, flex=1, minWidth=90)
+					gb.configure_column(col, flex=1, minWidth=min_w)
 				except Exception:
 					pass
 			if "Symbol" in doji_view.columns:
 				gb.configure_column("Symbol", pinned="left", width=100)
+			if compact_mobile:
+				gb.configure_grid_options(rowHeight=24, headerHeight=28)
 			grid_options = gb.build()
+			custom_css = None
+			if compact_mobile:
+				custom_css = {
+					".ag-theme-streamlit .ag-cell": {"font-size": "11px", "padding": "2px 4px"},
+					".ag-theme-streamlit .ag-header-cell-label": {"font-size": "11px"},
+				}
 			grid_response = AgGrid(
 				doji_view,
 				gridOptions=grid_options,
@@ -626,6 +633,7 @@ if mode == "Doji Scanner":
 				fit_columns_on_grid_load=True,
 				update_mode=GridUpdateMode.SELECTION_CHANGED,
 				allow_unsafe_jscode=True,
+				custom_css=custom_css,
 			)
 			_store_selection("doji_selected", grid_response)
 		else:
