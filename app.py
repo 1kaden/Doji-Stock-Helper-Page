@@ -399,6 +399,7 @@ with st.sidebar:
 	dir_filter = st.selectbox("Gap Direction", ["Both", "Up", "Down"], index=0)
 	min_gap_pct = st.slider("Min absolute gap %", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
 	include_doji = st.checkbox("Compute Doji flag (adds Doji? column)", value=False)
+	compact_mobile = st.checkbox("Compact table (mobile)", value=True)
 
 	# Doji scanner specific controls
 	if mode == "Doji Scanner":
@@ -494,14 +495,29 @@ if mode == "Gap Scanner":
 	else:
 		quick_search = st.text_input("Quick search (filters all columns)")
 		if AgGrid and GridOptionsBuilder:
-			gb = GridOptionsBuilder.from_dataframe(results)
+			# Compact view for mobile: keep essential columns
+			if compact_mobile:
+				_keep = [c for c in ["Symbol", "Date", "Gap %", "Direction", "Doji?", "Doji Type"] if c in results.columns]
+				results_view = results[_keep].copy() if _keep else results
+			else:
+				results_view = results
+
+			gb = GridOptionsBuilder.from_dataframe(results_view)
 			gb.configure_pagination(paginationAutoPageSize=True)
 			gb.configure_side_bar()
 			gb.configure_selection(selection_mode="single", use_checkbox=True)
 			gb.configure_default_column(resizable=True, sortable=True, filter=True, floatingFilter=True)
+			# Responsive widths
+			for col in results_view.columns:
+				try:
+					gb.configure_column(col, flex=1, minWidth=90)
+				except Exception:
+					pass
+			if "Symbol" in results_view.columns:
+				gb.configure_column("Symbol", pinned="left", width=100)
 			grid_options = gb.build()
 			grid_response = AgGrid(
-				results,
+				results_view,
 				gridOptions=grid_options,
 				height=540,
 				fit_columns_on_grid_load=True,
@@ -583,14 +599,28 @@ if mode == "Doji Scanner":
 		st.info("Run a scan to see results.")
 	else:
 		if AgGrid and GridOptionsBuilder:
-			gb = GridOptionsBuilder.from_dataframe(doji_table)
+			# Compact view for mobile
+			if compact_mobile:
+				_keep = [c for c in ["Symbol", "Date", "Doji?", "Doji Type", "N-Day Doji?", "N-Day Δ% (vs start)"] if c in doji_table.columns]
+				doji_view = doji_table[_keep].copy() if _keep else doji_table
+			else:
+				doji_view = doji_table
+
+			gb = GridOptionsBuilder.from_dataframe(doji_view)
 			gb.configure_pagination(paginationAutoPageSize=True)
 			gb.configure_side_bar()
 			gb.configure_selection(selection_mode="single", use_checkbox=True)
 			gb.configure_default_column(resizable=True, sortable=True, filter=True, floatingFilter=True)
+			for col in doji_view.columns:
+				try:
+					gb.configure_column(col, flex=1, minWidth=90)
+				except Exception:
+					pass
+			if "Symbol" in doji_view.columns:
+				gb.configure_column("Symbol", pinned="left", width=100)
 			grid_options = gb.build()
 			grid_response = AgGrid(
-				doji_table,
+				doji_view,
 				gridOptions=grid_options,
 				height=540,
 				fit_columns_on_grid_load=True,
