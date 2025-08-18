@@ -56,6 +56,41 @@ except Exception:
 		return is_nday, delta_frac
 
 
+# Compatibility wrapper to call tag_doji regardless of version differences
+def tag_doji_compat(
+	data: pd.DataFrame,
+	body_alpha: float,
+	atr_floor: float,
+	wick_tolerance: float,
+	long_wick_fraction: float,
+) -> pd.DataFrame:
+	try:
+		# Preferred signature (new)
+		return tag_doji(
+			data,
+			body_alpha=body_alpha,
+			atr_floor=atr_floor,
+			wick_tolerance=wick_tolerance,
+			long_wick_fraction=long_wick_fraction,
+		)
+	except TypeError:
+		# Legacy signature: alpha + atr_floor
+		try:
+			return tag_doji(data, alpha=body_alpha, atr_floor=atr_floor)  # type: ignore[arg-type]
+		except Exception:
+			# Minimal local fallback
+			frame = data.copy()
+			open_px = frame["Open"].astype(float)
+			high_px = frame["High"].astype(float)
+			low_px = frame["Low"].astype(float)
+			close_px = frame["Close"].astype(float)
+			body = (close_px - open_px).abs()
+			range_ = (high_px - low_px).clip(lower=1e-9)
+			frame["is_doji"] = body <= body_alpha * range_
+			frame["doji_type"] = frame["is_doji"].map(lambda x: "Doji" if x else None)
+			return frame
+
+
 # -----------------------------
 # Page configuration
 # -----------------------------
@@ -167,7 +202,7 @@ def build_gap_table(
 			continue
 		# Enrich with optional signals
 		if include_doji:
-			df = tag_doji(df)
+			df = tag_doji_compat(df, body_alpha=0.1, atr_floor=0.5, wick_tolerance=0.1, long_wick_fraction=0.6)
 		# Compute gap percent vs previous close
 		gaps = compute_gap_pct(df)
 		df = df.assign(gap_pct=gaps).dropna(subset=["gap_pct"]).copy()
@@ -224,7 +259,7 @@ def render_candlestick(
 
 	# Tag single-day doji types for marker overlays
 	if show_doji_markers:
-		data_tagged = tag_doji(data)
+		data_tagged = tag_doji_compat(data, body_alpha=0.1, atr_floor=0.5, wick_tolerance=0.1, long_wick_fraction=0.6)
 	else:
 		data_tagged = data.copy()
 
@@ -518,7 +553,7 @@ if ((scan_clicked or (mode == "Doji Scanner" and auto_refresh and time.time() - 
 				if df.empty:
 					continue
 				# classify dojis using current thresholds
-				df_doji = tag_doji(df, body_alpha=body_alpha, atr_floor=atr_floor, wick_tolerance=wick_tol, long_wick_fraction=long_wick_frac)
+				df_doji = tag_doji_compat(df, body_alpha=body_alpha, atr_floor=atr_floor, wick_tolerance=wick_tol, long_wick_fraction=long_wick_frac)
 				if ndoji_toggle:
 					flags, delta = compute_nday_reversion(df_doji, int(ndoji_window), ndoji_tolerance / 100.0)
 					df_doji = df_doji.assign(is_nday_doji=flags, nday_delta_pct=(delta * 100.0))
